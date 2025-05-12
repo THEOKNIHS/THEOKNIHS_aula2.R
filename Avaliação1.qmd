@@ -1,0 +1,246 @@
+---
+title: "Theo Victor Knihs"
+format: html
+editor: visual
+---
+
+```{r}
+#| label: load-packages
+#| include: false
+
+library(WDI)
+library(ggplot2)
+library(dplyr)
+library(scales)
+library(countrycode)
+library(dplyr)
+
+options(scipen = 999) # REMOVER A NOT. CIENT.
+# DADOS EM PAINEL
+# Coleta de dados
+dadospoup <- WDI(country = "all", indicator = "NY.GDS.TOTL.CD")
+
+# Remover regiões agregadas e manter só países
+dadospoup <- dadospoup %>%
+  filter(!is.na(iso2c)) %>%
+  filter(!is.na(countrycode(iso2c, origin = "iso2c", destination = "country.name")))
+
+# Nome completo dos países
+dadospoup$country_name <- countrycode(dadospoup$iso2c, origin = "iso2c", destination = "country.name")
+
+# Filtrar os 10 países com maior poupança média
+top_paises <- dadospoup %>%
+  group_by(iso2c) %>%
+  summarise(media_poup = mean(NY.GDS.TOTL.CD, na.rm = TRUE)) %>%
+  arrange(desc(media_poup)) %>%
+  slice_head(n = 10) %>%
+  pull(iso2c)
+
+# Dados filtrados com Brasil incluso
+dados_filtrados <- dadospoup %>%
+  filter(iso2c %in% c(top_paises, "BR"))
+
+# Destacar Brasil com nome diferenciado
+dados_filtrados <- dados_filtrados %>%
+  mutate(pais_destacado = ifelse(iso2c == "BR", "Brasil", country_name))
+
+# Calcular valor máximo da poupança (em bilhões)
+max_poup_bilhoes <- ceiling(max(dados_filtrados$NY.GDS.TOTL.CD, na.rm = TRUE) / 1e9)
+breaks_y <- seq(0, max_poup_bilhoes, by = 500)
+
+# Identificar o pico de poupança de cada país
+picos <- dados_filtrados %>%
+  group_by(pais_destacado) %>%
+  filter(NY.GDS.TOTL.CD == max(NY.GDS.TOTL.CD, na.rm = TRUE)) %>%
+  distinct(pais_destacado, .keep_all = TRUE)
+
+# CORTE TRANSVERSAL
+
+# 1. Baixar os dados
+poup2020 <- WDI(country = "all",
+                indicator = "NY.GDS.TOTL.CD",
+                start = 2020, end = 2020)
+
+# 2. Filtrar apenas países reais
+poup_filtrado <- poup2020 %>%
+  filter(!is.na(NY.GDS.TOTL.CD)) %>%
+  mutate(is_country = !is.na(countrycode(country, "country.name", "iso3c"))) %>%
+  filter(is_country)
+
+# 3. Selecionar top 10 países
+top10 <- poup_filtrado %>%
+  arrange(desc(NY.GDS.TOTL.CD)) %>%
+  slice(1:10)
+
+# 4. Adicionar Brasil (se não estiver no top 10)
+brasil <- poup_filtrado %>% filter(iso2c == "BR")
+
+# 5. Combinar top10 com Brasil, evitando duplicatas
+poup_select <- bind_rows(top10, brasil) %>%
+  distinct(iso2c, .keep_all = TRUE) %>%
+  arrange(desc(NY.GDS.TOTL.CD)) %>%
+  mutate(
+    rank = row_number(),
+    country_label = paste0(rank, ". ", country),
+    cor = ifelse(iso2c == "BR", "#e63946", "#fbb1d3")  # Brasil em vermelho claro
+  )
+
+# 6. Ajustar ordem dos países para eixo Y
+poup_select$country_label <- factor(poup_select$country_label,
+                                    levels = rev(poup_select$country_label))
+# SÉRIE TEMPORAL
+# 1. Baixar os dados de poupança bruta do Brasil
+dadospoupbr <- WDI(
+  country = 'BR',
+  indicator = 'NY.GDS.TOTL.CD'
+)
+
+# 2. Renomear a variável para facilitar
+dadospoupbr <- dadospoupbr %>%
+  rename(poupanca = NY.GDS.TOTL.CD)
+
+# 3. Criar vetor com anos marcantes
+anos_marcantes <- c(2008, 2014, 2020, 2022)
+
+
+
+```
+
+## VARIÁVEL
+
+A variável '**`NY.GDS.TOTL.CD'`** vem do **Banco Mundial** e representa o **Valor Bruto de Poupança** de um país, medido em **dólares correntes (USD)**. Essa medida mostra quanto da renda nacional é poupada. Analisar esses dados é importante para entender a capacidade de financiamento interno de um país, seu potencial de crescimento e sua sustentabilidade a longo prazo.
+
+## GRÁFICO DE DADOS EM PAINEL
+
+O gráfico apresenta a evolução da **Poupança Total Bruta (em bilhões de dólares)** dos **dez países com maior média histórica**, além do **Brasil**, ao longo do tempo. A escala utilizada no eixo Y vai de **0 até o valor máximo observado**, com quebras regulares de **500 bilhões de dólares (US\$ 500 B)**, o que facilita a visualização de diferenças entre os países, mesmo em níveis muito altos de poupança. A escala é linear, mantendo a proporcionalidade entre os valores e permitindo comparações diretas entre os países ao longo dos anos.
+
+As linhas representam os valores suavizados da poupança bruta de cada país, permitindo identificar tendências gerais sem oscilações pontuais excessivas. Cada linha tem uma cor distinta associada ao país, e o **ponto de pico** de poupança de cada país é marcado com uma **bolinha branca contornada pela mesma cor da linha**, destacando visualmente o ano em que cada nação teve o maior valor de poupança registrado. O Brasil aparece destacado com nome próprio, mesmo não estando entre os dez primeiros em média.
+
+Observa-se que alguns países — como China e Estados Unidos — possuem poupanças muito superiores ao restante, com trajetórias crescentes marcantes ao longo do tempo. Outros países apresentam crescimento mais moderado ou estabilidade, refletindo diferentes dinâmicas econômicas. A inclusão do Brasil permite ao leitor contextualizar sua posição relativa frente às maiores economias do mundo em termos de poupança agregada.
+
+```{r}
+#| label: graficodadosempainel
+#| warning: false
+#| echo: false
+
+ggplot(dados_filtrados,
+                     aes(x = year,
+                         y = NY.GDS.TOTL.CD / 1e9,
+                         color = pais_destacado,
+                         group = pais_destacado)) +
+  geom_smooth(method = "loess", span = 0.5, se = FALSE, size = 1.5) +
+  
+  # Adicionar bolinhas nos picos
+  geom_point(data = picos,
+             aes(x = year, y = NY.GDS.TOTL.CD / 1e9, color = pais_destacado),
+             size = 3, shape = 21, fill = "white", stroke = 1.2) +
+  
+  scale_x_continuous(
+    breaks = seq(min(dados_filtrados$year, na.rm = TRUE),
+                 max(dados_filtrados$year, na.rm = TRUE),
+                 by = 10)
+  ) +
+  scale_y_continuous(
+    breaks = breaks_y,
+    labels = function(x) paste0("US$", format(x, big.mark = ".", decimal.mark = ","), " B")
+  ) +
+  
+  labs(
+    title = "Poupança Total Bruta dos Maiores Países ao Longo do Tempo",
+    x = "Ano",
+    y = "Poupança (Bilhões de US$)",
+    color = "País"
+  ) +
+  
+  theme_minimal(base_family = "Helvetica") +
+  theme(
+    plot.title = element_text(size = 11, face = "bold"),
+    axis.title = element_text(size = 11),
+    axis.text = element_text(size = 10),
+    legend.title = element_text(size = 11),
+    legend.text = element_text(size = 10),
+    legend.position = "right"
+  )
+```
+
+## GRÁFICO DE DADOS DE CORTE TRANSVERSAL
+
+Esse código foi feito para criar um gráfico que mostre os países com as maiores poupanças brutas no ano de 2020, com base em dados do Banco Mundial. A primeira parte do código busca essas informações usando o pacote `WDI`, selecionando os 10 países com os maiores valores. Além disso, mesmo que o Brasil não esteja entre os 10 primeiros, ele é incluído no gráfico para fins de comparação.
+
+Em seguida, o código organiza os dados para que fiquem fáceis de visualizar. Criando uma coluna com a posição de cada país no ranking e outra com o nome formatado, usa-se cores diferentes para destacar o Brasil — assim é fácil identificar o país no gráfico. A ordem dos países também é ajustada para que o maior valor fique no topo, o que deixa a leitura mais intuitiva.
+
+Por fim, o gráfico é montado para ser visualmente claro: a legenda fica centralizada na parte de baixo, os números de poupança aparecem ao lado das barras e o eixo X é limpo para não poluir a imagem. Também foi adicionado um espaço extra no gráfico para que o valor da China — que é bem alto — não fique cortado. O título foi reduzido para não sobrepor elementos e o subtítulo explica que os valores estão em dólares correntes (USD), deixando o gráfico completo.
+
+```{r}
+#| label: graficocortetransversal
+#| warning: false 
+#| echo: false  
+
+ggplot(poup_select, aes(x = NY.GDS.TOTL.CD, y = country_label, fill = cor)) +
+  geom_bar(stat = "identity", show.legend = TRUE) +
+  geom_text(aes(label = scales::label_dollar(scale = 1e-9, suffix = " bi")(NY.GDS.TOTL.CD)),
+            hjust = -0.1, size = 3) +
+  scale_fill_identity(name = NULL,
+                      guide = "legend",
+                      labels = c("#fbb1d3" = "Demais países", "#e63946" = "Brasil")) +
+  labs(
+    title = "Top Países com Maior Poupança Bruta em 2020",
+    subtitle = "Valores em dólares correntes (USD)",
+    x = NULL,
+    y = NULL
+  ) +
+  coord_cartesian(xlim = c(0, max(poup_select$NY.GDS.TOTL.CD) * 1.2)) +  # Aumenta ainda mais o limite do eixo X
+  theme_minimal(base_size = 12) +
+  theme(
+    axis.text.x = element_blank(),
+    axis.ticks.x = element_blank(),
+    panel.grid.major.x = element_blank(),
+    plot.title = element_text(size = 14),           # Título menor
+    legend.position = "bottom",                     # Legenda embaixo
+    legend.justification = "center",                # Centralizada
+    plot.margin = margin(10, 20, 10, 10)
+  )
+
+```
+
+## GRÁFICO DE DADOS DE SÉRIE TEMPORAL
+
+O gráfico mostra a evolução da poupança bruta no Brasil ao longo dos anos, medida em dólares correntes (USD). A poupança bruta representa a parte da renda nacional que não é consumida, e serve como base para investimentos futuros. Observa-se que o volume poupado pelo país apresenta oscilações significativas, refletindo momentos de crescimento e retração econômica.
+
+Os pontos destacados em anos como 2008, 2014, 2020 e 2022 representam períodos críticos para a economia brasileira. Em 2008, por exemplo, a crise financeira global teve impacto sobre a poupança, enquanto em 2014, o Brasil enfrentava uma forte recessão interna. Já 2020 marca o início da pandemia de COVID-19, que afetou severamente a atividade econômica mundial, e 2022 registra um momento de recuperação parcial, com retomada de investimentos e exportações.
+
+No geral, o gráfico revela a sensibilidade da poupança nacional aos ciclos econômicos e às crises, sendo um indicador relevante para entender o comportamento dos agentes econômicos em relação ao consumo e ao investimento. Uma trajetória de crescimento sustentável da poupança é essencial para garantir recursos internos que possam financiar o desenvolvimento do país sem depender excessivamente do capital externo.
+
+```{r}
+#| label: graficoserietemporal
+#| warning: false  
+#| echo: false    
+
+ggplot(dadospoupbr, aes(x = year, y = poupanca)) +
+  geom_line(color = "#f4a7b9", size = 1.3) +  # Rosa bebê mais forte
+  geom_point(data = dadospoupbr %>% filter(year %in% anos_marcantes),
+             aes(x = year, y = poupanca),
+             color = "#1d3557", size = 3.5) +
+  geom_text(data = dadospoupbr %>% filter(year %in% anos_marcantes),
+            aes(label = year),
+            vjust = -1, size = 3.5, color = "#1d3557") +
+  scale_y_continuous(
+    labels = scales::label_dollar(scale = 1e-9, suffix = " bi"),
+    breaks = scales::breaks_extended(n = 8)
+  ) +
+  labs(
+    title = "Evolução da Poupança Bruta no Brasil",
+    subtitle = "Valores em dólares correntes (USD)",
+    x = "Ano",
+    y = "Poupança Bruta",
+    caption = "Fonte: Banco Mundial – WDI"
+  ) +
+  theme_minimal(base_size = 13) +
+  theme(
+    plot.title = element_text(size = 15, face = "bold"),
+    plot.subtitle = element_text(size = 12),
+    axis.title = element_text(size = 12),
+    legend.position = "bottom"
+  )
+
+```

@@ -1,0 +1,106 @@
+---
+title: "Theo Victor Knihs"
+format: html
+editor: visual
+---
+
+```{r}
+#| label: load-packages
+#| include: false
+
+library(ggplot2)
+library(gganimate)
+library(dplyr)
+library(scales)
+library(GetBCBData)
+library(tidyverse)
+
+options(scipen = 999) # REMOVER A NOT. CIENT.
+# DADOS EM PAINEL
+Sys.setlocale("LC_TIME", "pt_BR.UTF-8")
+
+my.id <- c(IND = 21083)
+
+df.bcb <- gbcbd_get_series(id = my.id ,
+                           first.date = '1986-03-06',
+                           last.date = '2017-07-03',
+                           format.data = 'long',
+                           use.memoise = TRUE, 
+                           cache.path = tempdir(), # use tempdir for cache folder
+                           do.parallel = FALSE)
+glimpse(df.bcb)
+
+df.bcb <- df.bcb %>%
+  mutate(ref.date = as.Date(ref.date)) %>%
+  filter(!is.na(ref.date), !is.na(value)) %>%
+  arrange(ref.date)
+
+pico_min <- df.bcb %>% filter(value == min(value, na.rm = TRUE)) %>% slice(1) %>% mutate(tipo = "Mínimo")
+pico_max <- df.bcb %>% filter(value == max(value, na.rm = TRUE)) %>% slice(1) %>% mutate(tipo = "Máximo")
+picos <- bind_rows(pico_min, pico_max)
+```
+
+## Inadimplência da carteira de crédito - Pessoas jurídicas - Total
+
+Nesse trabalho foi elaborado um gráfico animado para representar a inadimplência de pessoas jurídicas ao longo do tempo, utilizando dados oficiais do Banco Central do Brasil (SGS). A série foi obtida com o pacote GetBCBData, com uma base confiável, adequada para análises. Após a tabulação, os dados foram organizados, removendo valores ausentes e ordenando os dados ao longo do tempo, o que assegura a análise. Na visualização, foram destacados dois pontos distintos: o de maior e o de menor porcentagem de inadimplência no período. Esses marcos são relevantes para entender momentos de estabilidade ou crise no crédito empresarial, e ajudam a interpretar o ciclo econômico. A linha da série evolui de forma animada, mostrando a dinâmica da inadimplência ao longo do tempo. A escala do tempo foi configurada ano a ano, com rótulos em português, facilitando a leitura. O uso de cores modernas, elementos fixos (como os pontos de pico) e animação tornam o gráfico não apenas estetica.
+
+## Gráfico em painel - Evolução cronológica da inadimplência nas carteiras de crédito:
+
+A inadimplência da carteira de crédito de pessoas jurídicas refere-se ao percentual de empresas que deixaram de pagar, no prazo contratado, os empréstimos e financiamentos obtidos junto a instituições financeiras. Esse indicador mede o total de operações em atraso por mais de 90 dias em relação ao volume total de crédito concedido às empresas.
+
+Esse dado é essencial para avaliar o nível de risco no setor empresarial e a saúde financeira das empresas no país. Um aumento na inadimplência pode indicar dificuldades econômicas no setor produtivo, enquanto uma queda pode sinalizar maior estabilidade e capacidade de pagamento.
+
+```{r}
+#| label: graficodadosempainel
+#| warning: false
+#| echo: false
+
+ggplot(df.bcb, aes(x = ref.date, y = value)) +
+  
+  # LINHA ANIMADA (essa é afetada pelo transition_reveal)
+  geom_line(color = "#2C3E50", size = 1.2, na.rm = TRUE) +
+  
+  # PONTOS FIXOS (fora da animação - não seguem transition_reveal)
+  geom_point(data = picos, aes(x = ref.date, y = value, color = tipo),
+             inherit.aes = FALSE, size = 4) +
+  
+  # TEXTOS FIXOS junto com os pontos (fora da animação, não mudam de posição)
+  
+  scale_color_manual(values = c("Mínimo" = "#2980B9", "Máximo" = "#E74C3C")) +
+  scale_x_date(
+    date_labels = "%Y",
+    date_breaks = "1 year",
+    limits = c(min(df.bcb$ref.date), max(df.bcb$ref.date)),
+    expand = expansion(mult = c(0.01, 0.01))
+  ) +
+  scale_y_continuous(
+    labels = scales::percent_format(scale = 1),
+    expand = expansion(mult = c(0.05, 0.1))
+  ) +
+  
+  labs(
+    title = "Inadimplência de Pessoas Jurídicas",
+    subtitle = paste0("De ", format(min(df.bcb$ref.date), "%d/%m/%Y"),
+                      " a ", format(max(df.bcb$ref.date), "%d/%m/%Y")),
+    x = "Ano",
+    y = "Inadimplência %",
+    color = "Tipo de Pico",
+    caption = "Fonte: Banco Central do Brasil"
+  ) +
+  theme_minimal(base_family = "Helvetica") +
+  theme(
+    plot.title = element_text(size = 16, face = "bold", color = "#2C3E50"),
+    plot.subtitle = element_text(size = 12, color = "#34495E"),
+    axis.title = element_text(size = 12, face = "bold"),
+    axis.text.x = element_text(angle = 0, hjust = 0.5, size = 8),
+    axis.text.y = element_text(size = 10),
+    panel.grid.major = element_line(color = "#BDC3C7", size = 0.3),
+    panel.grid.minor = element_blank(),
+    legend.position = "bottom"
+  ) +
+  
+  transition_reveal(ref.date)
+
+```
+
+## 
